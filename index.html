@@ -257,9 +257,14 @@ select.field{cursor:pointer}
         <div class="box glow-box">
           <h3>☁️ Proyectos</h3>
           <div class="list" id="gc-list"></div>
+          <h3 style="margin-top:18px">➕ Agregar proyecto Google (asistente)</h3>
+          <div class="form-grid" style="margin-top:10px">
+            <div><span class="lbl">Gmail dueño del proyecto</span><input id="gc-dueno" class="field" placeholder="tucuenta@gmail.com"></div>
+            <div><span class="lbl">ID del proyecto</span><input id="gc-proy" class="field" placeholder="Lo copias de Google o se llena del JSON"></div>
+          </div>
+          <div class="list" id="gc-wiz" style="margin-top:10px"></div>
           <div class="form-grid" style="margin-top:14px">
-            <div><span class="lbl">Nombre</span><input id="gc-nombre" class="field" placeholder="Ej: Proyecto 2"></div>
-            <div><span class="lbl">ID del proyecto</span><input id="gc-proy" class="field" placeholder="Se llena solo del JSON"></div>
+            <div class="full"><span class="lbl">Nombre (en el panel)</span><input id="gc-nombre" class="field" placeholder="Ej: Proyecto 2"></div>
             <div class="full"><span class="lbl">credentials.json (App de escritorio)</span><textarea id="gc-json" class="field" placeholder='Pega aquí el contenido de credentials.json'></textarea></div>
             <div class="full" style="display:flex;gap:8px;flex-wrap:wrap">
               <label class="btn-ghost" style="cursor:pointer">📄 Elegir archivo…<input id="gc-file" type="file" accept=".json,application/json" class="hidden"></label>
@@ -428,7 +433,7 @@ async function cargar(silencio){
     const qs=[sb.from('equipos').select('*').order('visto_ultimo',{ascending:false,nullsFirst:false}).limit(2000),
       sb.from('ventas').select('*').order('creado',{ascending:false}).limit(5000),
       sb.from('ajustes').select('*')];
-    if(S.role==='root'){qs.push(sb.from('admins').select('*').order('creado',{ascending:true}));qs.push(sb.from('drive_cuentas').select('id,nombre,client_id,proyecto,activa,orden,creado').order('orden',{ascending:true}).order('creado',{ascending:true}))}
+    if(S.role==='root'){qs.push(sb.from('admins').select('*').order('creado',{ascending:true}));qs.push(sb.from('drive_cuentas').select('id,nombre,client_id,proyecto,dueno,activa,orden,creado').order('orden',{ascending:true}).order('creado',{ascending:true}))}
     const r=await Promise.all(qs);
     for(const x of r)if(x.error)throw x.error;
     S.equipos=r[0].data||[];S.ventas=r[1].data||[];
@@ -692,12 +697,14 @@ async function funcion(nombre,body){
 /* ---------- Cuentas de Google (root) ---------- */
 function pintarCuentas(){
   const pend=pendientesGoogle();
+  wiz();
   $('gc-pend-n').textContent=pend.length?pend.length+' pendientes':'';
-  $('gc-pend').innerHTML=pend.length?pend.map(e=>{const c=S.cuentas.find(x=>x.id===e.drive_cuenta)||{};const link=c.proyecto?'https://console.cloud.google.com/auth/audience?project='+encodeURIComponent(c.proyecto):'https://console.cloud.google.com/auth/audience';return `<div class="li" data-pg="${e.id}"><b>${esc(e.gmail)}</b><span class="muted">${esc(e.cliente||'')} · ${esc(c.nombre||'—')}</span><span class="sub" style="display:flex;gap:6px"><button class="act" data-cp="${esc(e.gmail)}">📋 Copiar</button><a class="act blue" href="${link}" target="_blank" rel="noopener" style="text-decoration:none">↗ Abrir proyecto</a><button class="act green" data-ok>✅ Agregado</button></span></div>`}).join(''):'<div class="empty">Todo al día: no hay Gmails por agregar ✨</div>';
+  $('gc-pend').innerHTML=pend.length?pend.map(e=>{const c=S.cuentas.find(x=>x.id===e.drive_cuenta)||{};const link=gUrl('auth/audience',c.proyecto,c.dueno);return `<div class="li" data-pg="${e.id}"><b>${esc(e.gmail)}</b><span class="muted">${esc(e.cliente||'')} · ${esc(c.nombre||'—')}</span><span class="sub" style="display:flex;gap:6px"><button class="act" data-cp="${esc(e.gmail)}">📋 Copiar</button><a class="act blue" href="${link}" target="_blank" rel="noopener" style="text-decoration:none">↗ Abrir proyecto</a><button class="act green" data-ok>✅ Agregado</button></span></div>`}).join(''):'<div class="empty">Todo al día: no hay Gmails por agregar ✨</div>';
   for(const r of $('gc-pend').querySelectorAll('[data-pg]')){r.querySelector('[data-cp]').onclick=async(ev)=>{try{await navigator.clipboard.writeText(ev.target.dataset.cp);toast('Gmail copiado','ok')}catch(_){}};r.querySelector('[data-ok]').onclick=()=>upd(r.dataset.pg,{drive_ok:true},'Marcado como agregado')}
   const uso=new Map();for(const e of S.equipos)if(e.drive_cuenta)uso.set(e.drive_cuenta,(uso.get(e.drive_cuenta)||0)+1);
-  $('gc-list').innerHTML=S.cuentas.length?S.cuentas.map(c=>{const n=uso.get(c.id)||0,cls=n>=100?'lleno':(n>=90?'casi':'');return `<div class="gc-row${c.activa?'':' off'}" data-gc="${c.id}"><span class="gc-name">${esc(c.nombre)}</span><span class="gc-id">${esc(c.proyecto||String(c.client_id).slice(0,24)+'…')}</span><span class="gc-uso ${cls}">${n} / 100 equipos</span><button class="act ${c.activa?'gold':'green'}" data-t>${c.activa?'⏸ Pausar':'▶ Activar'}</button><button class="act red" data-d>🗑</button></div>`}).join(''):'<div class="empty">Aún no agregaste proyectos.</div>';
+  $('gc-list').innerHTML=S.cuentas.length?S.cuentas.map(c=>{const n=uso.get(c.id)||0,cls=n>=100?'lleno':(n>=90?'casi':'');return `<div class="gc-row${c.activa?'':' off'}" data-gc="${c.id}"><span class="gc-name">${esc(c.nombre)}</span><span class="gc-id">${esc(c.proyecto||String(c.client_id).slice(0,24)+'…')}</span>${c.dueno?`<span class="gc-id">👤 ${esc(c.dueno)}</span>`:''}<span class="gc-uso ${cls}">${n} / 100 equipos</span><a class="act blue" href="${gUrl('auth/audience',c.proyecto,c.dueno)}" target="_blank" rel="noopener" style="text-decoration:none">↗ Abrir</a><button class="act" data-u title="Gmail dueño">👤</button><button class="act ${c.activa?'gold':'green'}" data-t>${c.activa?'⏸ Pausar':'▶ Activar'}</button><button class="act red" data-d>🗑</button></div>`}).join(''):'<div class="empty">Aún no agregaste proyectos.</div>';
   for(const r of $('gc-list').querySelectorAll('[data-gc]')){const c=S.cuentas.find(x=>x.id===r.dataset.gc);
+    r.querySelector('[data-u]').onclick=async()=>{const v=prompt('Gmail dueño del proyecto "'+c.nombre+'":',c.dueno||'');if(v===null)return;const{error}=await sb.from('drive_cuentas').update({dueno:v.trim().toLowerCase()||null}).eq('id',c.id);if(error){toast('Error: '+error.message,'err');return}toast('Dueño guardado','ok');cargar(true)};
     r.querySelector('[data-t]').onclick=async()=>{const{error}=await sb.from('drive_cuentas').update({activa:!c.activa}).eq('id',c.id);if(error){toast('Error: '+error.message,'err');return}toast(c.activa?'Proyecto pausado':'Proyecto activado','ok');cargar(true)};
     r.querySelector('[data-d]').onclick=async()=>{if(!confirm('¿Borrar el proyecto "'+c.nombre+'"? Sus equipos pasarán a Automática.'))return;const{error}=await sb.from('drive_cuentas').delete().eq('id',c.id);if(error){toast('Error: '+error.message,'err');return}toast('Proyecto borrado','ok');cargar(true)}}
 }
@@ -707,15 +714,26 @@ function leerCred(txt){
   if(!d.client_id||!d.client_secret)throw new Error('Faltan client_id o client_secret.');
   return {client_id:String(d.client_id).trim(),client_secret:String(d.client_secret).trim(),proyecto:d.project_id||''};
 }
-function autollenar(){try{const c=leerCred($('gc-json').value.trim());if(!$('gc-proy').value.trim())$('gc-proy').value=c.proyecto;if(!$('gc-nombre').value.trim())$('gc-nombre').value=c.proyecto}catch(_){}}
+function gUrl(ruta,proy,dueno){const q=[];if(proy)q.push('project='+encodeURIComponent(proy));if(dueno)q.push('authuser='+encodeURIComponent(dueno));return 'https://console.cloud.google.com/'+ruta+(q.length?'?'+q.join('&'):'')}
+function wiz(){const P=$('gc-proy').value.trim(),D=$('gc-dueno').value.trim(),sug='beatnex-'+((S.cuentas||[]).length+1);
+  const pasos=[
+    ['1','Crear el proyecto',`Nombre sugerido: <b>${sug}</b>. Luego copia el <b>ID del proyecto</b> y pégalo arriba.`,gUrl('projectcreate','',D),sug],
+    ['2','Activar Google Drive API','Pulsa <b>Habilitar</b>.',gUrl('apis/library/drive.googleapis.com',P,D)],
+    ['3','Pantalla de consentimiento','Nombre de la app: <b>BeatNex</b>, tu correo de soporte, Público: <b>Externo</b>.',gUrl('auth/branding',P,D),'BeatNex'],
+    ['4','Crear credencial','Tipo: <b>App de escritorio</b> → Crear → <b>Descargar JSON</b> y súbelo abajo.',gUrl('auth/clients/create',P,D)],
+    ['5','Usuarios de prueba','Agrega tu propio Gmail como usuario de prueba. Los de tus clientes saldrán en “Por agregar”.',gUrl('auth/audience',P,D)]];
+  $('gc-wiz').innerHTML=pasos.map(([n,t,d,u,cp])=>`<div class="li"><b>${n}. ${t}</b><span class="muted">${d}</span><span class="sub" style="display:flex;gap:6px">${cp?`<button class="act" data-cp="${esc(cp)}">📋 Copiar</button>`:''}<a class="act blue" href="${u}" target="_blank" rel="noopener" style="text-decoration:none">↗ Abrir</a></span></div>`).join('')+(P?'':'<p class="note">💡 Desde el paso 2 los enlaces abren tu proyecto directo cuando pegas el ID arriba.</p>');
+  for(const b of $('gc-wiz').querySelectorAll('[data-cp]'))b.onclick=async()=>{try{await navigator.clipboard.writeText(b.dataset.cp);toast('Copiado','ok')}catch(_){}}}
+$('gc-proy').addEventListener('input',wiz);$('gc-dueno').addEventListener('input',wiz);
+function autollenar(){try{const c=leerCred($('gc-json').value.trim());if(!$('gc-proy').value.trim())$('gc-proy').value=c.proyecto;if(!$('gc-nombre').value.trim())$('gc-nombre').value=c.proyecto;wiz()}catch(_){}}
 $('gc-json').addEventListener('input',autollenar);
 $('gc-file').addEventListener('change',async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;$('gc-json').value=await f.text();autollenar();e.target.value=''});
 $('gc-add').onclick=async()=>{
   let c;try{c=leerCred($('gc-json').value.trim())}catch(err){toast(err.message,'err');return}
   const nombre=$('gc-nombre').value.trim()||c.proyecto||('Proyecto '+(S.cuentas.length+1));
-  const{error}=await sb.from('drive_cuentas').insert({nombre,client_id:c.client_id,client_secret:c.client_secret,proyecto:$('gc-proy').value.trim()||c.proyecto||null,orden:S.cuentas.length});
+  const{error}=await sb.from('drive_cuentas').insert({nombre,client_id:c.client_id,client_secret:c.client_secret,proyecto:$('gc-proy').value.trim()||c.proyecto||null,dueno:$('gc-dueno').value.trim().toLowerCase()||null,orden:S.cuentas.length});
   if(error){toast(/duplicate|unique/i.test(error.message)?'Ese proyecto ya está agregado.':'Error: '+error.message,'err');return}
-  $('gc-json').value='';$('gc-nombre').value='';$('gc-proy').value='';toast('Proyecto agregado','ok');cargar(true);
+  $('gc-json').value='';$('gc-nombre').value='';$('gc-proy').value='';$('gc-dueno').value='';wiz();toast('Proyecto agregado','ok');cargar(true);
 };
 
 /* ---------- Ajustes (root) ---------- */
