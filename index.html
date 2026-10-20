@@ -316,8 +316,8 @@ select.field{cursor:pointer}
           <button class="btn-primary-blue small" data-open-activar>➕ Activar cliente</button>
         </div>
         <div class="box glow-box"><p class="note"><b>Para activar:</b> el cliente instala BeatNex, lo abre y te pasa su <b>código de equipo</b> (XXXX-XXXX-XXXX) y su <b>Gmail</b>. Tú lo activas con los días que vendiste.</p></div>
-        <div class="box glow-box hidden" id="cli-pend-box"><h3>📥 Nuevos registros con tu código <span class="muted" style="font-size:12px;font-weight:600" id="cli-pend-n"></span></h3>
-          <p class="note" style="margin-bottom:12px">Estos clientes pusieron tu código de vendedor en la app. Si es tu cliente, actívalo. Si no lo conoces, pulsa <b>No reconocido</b> y pasa al administrador.</p>
+        <div class="box glow-box hidden" id="cli-pend-box"><h3>📥 Nuevos registros <span class="muted" style="font-size:12px;font-weight:600" id="cli-pend-n"></span></h3>
+          <p class="note" style="margin-bottom:12px">Clientes que acaban de instalar BeatNex. Si es tu cliente, actívalo. Si no lo vendiste tú, pulsa <b>No reconocido</b> y desaparece de tu panel (solo lo verá el administrador).</p>
           <div class="list" id="cli-pend"></div></div>
         <div class="toolbar"><input id="cli-q" class="field" placeholder="🔎 Buscar…"></div>
         <div class="toolbar" id="cli-chips"></div>
@@ -437,12 +437,12 @@ async function cargar(silencio){
     const qs=[sb.from('equipos').select('*').order('visto_ultimo',{ascending:false,nullsFirst:false}).limit(2000),
       sb.from('ventas').select('*').order('creado',{ascending:false}).limit(5000),
       sb.from('ajustes').select('*')];
-    if(S.role==='root'){qs.push(sb.from('admins').select('*').order('creado',{ascending:true}));qs.push(sb.from('drive_cuentas').select('id,nombre,client_id,proyecto,dueno,activa,orden,creado').order('orden',{ascending:true}).order('creado',{ascending:true}))}
+    if(S.role==='root'){qs.push(sb.from('admins').select('*').order('creado',{ascending:true}));qs.push(sb.from('drive_cuentas').select('id,nombre,client_id,proyecto,dueno,activa,orden,creado').order('orden',{ascending:true}).order('creado',{ascending:true}));qs.push(sb.from('equipos_ocultos').select('equipo_id,admin_id'))}
     const r=await Promise.all(qs);
     for(const x of r)if(x.error)throw x.error;
     S.equipos=r[0].data||[];S.ventas=r[1].data||[];
     S.ajustes={};for(const a of (r[2].data||[]))S.ajustes[a.clave]=a.valor;
-    if(S.role==='root'){S.admins=r[3].data||[];S.cuentas=r[4].data||[]}
+    if(S.role==='root'){S.admins=r[3].data||[];S.cuentas=r[4].data||[];S.ocultos=r[5].data||[]}
     else{const {data}=await sb.from('admins').select('*').eq('id',S.me.id).maybeSingle();if(data)S.me=data;if(data&&!data.activo){toast('Tu acceso fue desactivado','err');setTimeout(async()=>{await sb.auth.signOut();location.reload()},1500);return}}
     pintarTodo();avisar();
   }catch(e){if(!silencio)toast('Error al cargar: '+errMsg(e),'err');else console.warn(e)}
@@ -452,7 +452,7 @@ function pitido(){try{const a=new (window.AudioContext||window.webkitAudioContex
 function avisar(){
   const items=S.role==='root'
     ?[...pendientesGoogle().filter(e=>e.admin_id).map(e=>({k:'g'+e.id,t:'🔔 '+nombreAdmin(e.admin_id)+' activó a '+(e.cliente||'un cliente'),b:'Agrega su Gmail en Google: '+(e.gmail||''),v:'gc'})),
-      ...S.equipos.filter(e=>e.estado==='pendiente'&&e.no_reconocido).map(e=>({k:'n'+e.id,t:'❓ Registro no reconocido',b:(e.cliente||'Sin nombre')+' · '+(e.gmail||''),v:'eq'}))]
+      ...S.equipos.filter(e=>e.estado==='pendiente'&&noRec(e).length).map(e=>({k:'n'+e.id,t:'❓ Registro no reconocido',b:(e.cliente||'Sin nombre')+' · '+(e.gmail||''),v:'eq'}))]
     :misPendientes().map(e=>({k:'p'+e.id,t:'📥 Nuevo registro con tu código',b:(e.cliente||'Sin nombre')+' · '+(e.gmail||''),v:'cli'}));
   document.title=(items.length?'('+items.length+') ':'')+'Panel Admin · BeatNex';
   const prim=!S.vistos;S.vistos=S.vistos||new Set();
@@ -465,6 +465,7 @@ function avisar(){
 function pintarAvisosBtn(){const b=$('btn-avisos');if(!('Notification' in window)){b.classList.add('hidden');return}b.classList.toggle('hidden',Notification.permission==='granted')}
 $('btn-avisos').onclick=async()=>{try{await Notification.requestPermission()}catch(_){}pintarAvisosBtn();if(Notification.permission==='granted'){pitido();toast('Avisos activados 🔔','ok')}else toast('El navegador bloqueó los avisos','err')};
 pintarAvisosBtn();
+function noRec(e){const ids=new Set((S.ocultos||[]).filter(o=>o.equipo_id===e.id).map(o=>o.admin_id));return [...ids].map(nombreAdmin).concat(e.no_reconocido&&!ids.size?['vendedor']:[])}
 function pintarTodo(){
   const dl=S.ajustes.link_descarga;$('lnk-dl').classList.toggle('hidden',!dl);if(dl)$('lnk-dl').href=dl;
   if(S.role==='root'){pintarResumen();pintarEquipos();pintarAdmins();pintarCuentas();pintarAjustes()}
@@ -547,7 +548,7 @@ function filaEquipo(e,modo){
   }
   const sub=modo==='root'?`${esc(e.gmail||'sin Gmail')} · ${esc(nombreAdmin(e.admin_id))}`:esc(e.gmail||'sin Gmail');
   let gtag=(e.gmail&&e.drive_cuenta&&!e.drive_ok&&e.estado!=='pendiente')?' <span class="status st-soon" title="Falta agregar su Gmail en Google">☁️ falta Google</span>':'';
-  if(modo==='root'&&e.no_reconocido&&e.estado==='pendiente')gtag+=' <span class="status st-exp" title="El vendedor no reconoció a este cliente">❓ No reconocido</span>';
+  if(modo==='root'&&e.estado==='pendiente'){const nr=noRec(e);if(nr.length)gtag+=` <span class="status st-exp" title="Vendedores que no lo reconocieron">❓ No reconocido por ${esc(nr.join(', '))}</span>`}
   if(modo==='root'&&e.admin_id&&e.estado==='pendiente')gtag+=` <span class="status st-soon" title="Se registró con el código de este vendedor">🏷 de ${esc(nombreAdmin(e.admin_id))}</span>`;
   return `<div class="urow glow-box" data-id="${e.id}">
     <div class="who"><div class="avatar">${inicial(e.cliente||e.nombre_equipo)}</div><div class="nmcol"><span class="uname">${esc(e.cliente||'Sin nombre')}</span><span class="usub">${sub}</span><span><span class="code" data-copy="${esc(e.codigo)}" title="Copiar código">${corto(e.codigo)}</span></span></div></div>
@@ -787,7 +788,7 @@ function pintarClientes(){
   const pend=misPendientes(),cli=S.equipos.filter(e=>!pend.includes(e));
   $('nb-cli').textContent=pend.length?pend.length+' nuevo'+(pend.length>1?'s':''):cli.length;$('nb-cli').classList.toggle('hot',!!pend.length);
   $('cli-pend-box').classList.toggle('hidden',!pend.length);$('cli-pend-n').textContent=pend.length?pend.length+' por revisar':'';
-  $('cli-pend').innerHTML=pend.map(e=>`<div class="li" data-pp="${e.id}"><b>${esc(e.cliente||'Sin nombre')}</b><span class="muted">${esc(e.gmail||'sin Gmail')} · <span class="code">${corto(e.codigo)}</span></span><span class="sub" style="display:flex;gap:6px"><button class="act green" data-act>✅ Activar</button><button class="act red" data-nr>❓ No reconocido</button></span></div>`).join('');
+  $('cli-pend').innerHTML=pend.map(e=>`<div class="li" data-pp="${e.id}"><b>${esc(e.cliente||'Sin nombre')}</b><span class="muted">${esc(e.gmail||'sin Gmail')} · <span class="code">${corto(e.codigo)}</span>${e.admin_id?' · 🏷 con tu código':''}</span><span class="sub" style="display:flex;gap:6px"><button class="act green" data-act>✅ Activar</button><button class="act red" data-nr>❓ No reconocido</button></span></div>`).join('');
   for(const r of $('cli-pend').querySelectorAll('[data-pp]')){const e=S.equipos.find(x=>x.id===r.dataset.pp);
     r.querySelector('[data-act]').onclick=()=>modalActivar(e);
     r.querySelector('[data-nr]').onclick=async()=>{if(!confirm('¿No conoces a "'+(e.cliente||'este cliente')+'"? Se quitará de tu panel y lo verá el administrador.'))return;const{error}=await sb.rpc('admin_no_reconocido',{p_id:e.id});if(error){toast('Error: '+errMsg(error),'err');return}toast('Enviado al administrador','ok');cargar(true)}}
