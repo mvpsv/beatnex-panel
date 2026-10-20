@@ -473,7 +473,7 @@ function pintarTodo(){
 }
 
 /* ---------- Resumen (root) ---------- */
-function pendientesGoogle(){return S.equipos.filter(e=>e.gmail&&e.drive_cuenta&&!e.drive_ok&&e.estado!=='pendiente')}
+function pendientesGoogle(){return S.equipos.filter(e=>e.gmail&&!e.drive_ok&&e.estado!=='pendiente'&&e.estado!=='bloqueado')}
 function pintarResumen(){
   const eq=S.equipos;let act=0,pend=0,soon=0,exp=0;
   for(const e of eq){const s=estadoDe(e).k;if(s==='pendiente')pend++;else if(s==='vencido')exp++;else if(s!=='bloqueado'){act++;if(s==='porvencer')soon++}}
@@ -528,6 +528,9 @@ function filaEquipo(e,modo){
     if(e.estado==='bloqueado'){acts.push(`<button class="act green" data-a="desbloquear">🔓 Desbloquear</button>`)}
     else{acts.push(`<button class="act green" data-a="add" data-n="30">+30 días</button>`,`<button class="act red" data-a="bloquear">⛔ Bloquear</button>`)}
   }
+  const faltaG=e.gmail&&!e.drive_ok&&e.estado!=='pendiente'&&e.estado!=='bloqueado';
+  if(modo==='root'&&faltaG){const c=(S.cuentas||[]).find(x=>x.id===e.drive_cuenta)||{};
+    acts.unshift(`<button class="act" data-cpg="${esc(e.gmail)}" title="Copiar Gmail">📋 Gmail</button>`,`<a class="act blue" href="${gUrl('auth/audience',c.proyecto,c.dueno)}" target="_blank" rel="noopener" style="text-decoration:none" title="Abrir Usuarios de prueba en ${esc(c.nombre||'Google')}">↗ Agregar en Google</a>`,`<button class="act green" data-gok2>✅ Ya agregado</button>`)}
   acts.push(`<button class="act" data-more>⚙ ${abierto?'Cerrar':'Más'}</button>`);
   let more='';
   if(abierto){
@@ -547,7 +550,8 @@ function filaEquipo(e,modo){
     }
   }
   const sub=modo==='root'?`${esc(e.gmail||'sin Gmail')} · ${esc(nombreAdmin(e.admin_id))}`:esc(e.gmail||'sin Gmail');
-  let gtag=(e.gmail&&e.drive_cuenta&&!e.drive_ok&&e.estado!=='pendiente')?' <span class="status st-soon" title="Falta agregar su Gmail en Google">☁️ falta Google</span>':'';
+  let gtag=(modo==='root'&&e.gmail&&!e.drive_ok&&e.estado!=='pendiente')?' <span class="status st-soon" title="Falta agregar su Gmail en Google">☁️ falta Google</span>':'';
+  if(modo==='adm'&&e.gmail&&e.estado!=='pendiente'&&e.estado!=='bloqueado')gtag+=e.drive_ok?' <span class="status st-ok" title="Su Gmail ya está habilitado para Drive">✅ Drive activado</span>':' <span class="status st-soon" title="El administrador está habilitando su Gmail en Google">⏳ Activando Drive</span>';
   if(modo==='root'&&e.estado==='pendiente'){const nr=noRec(e);if(nr.length)gtag+=` <span class="status st-exp" title="Vendedores que no lo reconocieron">❓ No reconocido por ${esc(nr.join(', '))}</span>`}
   if(modo==='root'&&e.admin_id&&e.estado==='pendiente')gtag+=` <span class="status st-soon" title="Se registró con el código de este vendedor">🏷 de ${esc(nombreAdmin(e.admin_id))}</span>`;
   return `<div class="urow glow-box" data-id="${e.id}">
@@ -576,6 +580,8 @@ function enlazarFilas(cont,modo){
     const m=row.querySelector('[data-more]');if(m)m.onclick=()=>{S.abiertos.has(id)?S.abiertos.delete(id):S.abiertos.add(id);modo==='root'?pintarEquipos():pintarClientes()};
     const sg=row.querySelector('[data-sel-gc]');if(sg)sg.onchange=()=>upd(id,{drive_cuenta:sg.value||null,drive_ok:false},sg.value?'Cuenta asignada':'Cuenta automática');
     const sa=row.querySelector('[data-sel-adm]');if(sa)sa.onchange=()=>upd(id,{admin_id:sa.value||null},'Vendedor cambiado');
+    const cg=row.querySelector('[data-cpg]');if(cg)cg.onclick=async()=>{try{await navigator.clipboard.writeText(cg.dataset.cpg);toast('Gmail copiado','ok')}catch(_){}};
+    const g2=row.querySelector('[data-gok2]');if(g2)g2.onclick=()=>upd(id,{drive_ok:true},'Drive activado ✅');
     const gk=row.querySelector('[data-gok]');if(gk)gk.onchange=()=>upd(id,{drive_ok:gk.checked},gk.checked?'Marcado como agregado':'Marcado como pendiente');
   }
   for(const c of cont.querySelectorAll('[data-copy]'))c.onclick=async(ev)=>{ev.stopPropagation();try{await navigator.clipboard.writeText(c.dataset.copy);toast('Código copiado','ok')}catch(_){}};
