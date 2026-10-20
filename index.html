@@ -142,6 +142,18 @@ h1.title{font-family:var(--f-display);font-weight:800;font-size:24px;margin:0;le
 .vbig{font-family:var(--f-display);font-weight:800;font-size:22px}
 .modal .x{float:right;background:none;border:0;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
 
+
+/* Cuentas de Google */
+.gc-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg2);margin-bottom:8px;flex-wrap:wrap}
+.gc-row.off{opacity:.55}
+.gc-name{font-weight:600}
+.gc-id{font-family:var(--f-mono);font-size:11.5px;color:var(--faint)}
+.gc-uso{margin-left:auto;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.gc-uso.lleno{color:var(--bad);font-weight:700}.gc-uso.casi{color:var(--warn);font-weight:700}
+.gc-add{display:grid;grid-template-columns:1fr;gap:8px;margin-top:10px}
+.gc-add textarea{min-height:76px;resize:vertical;font-family:var(--f-mono);font-size:12px}
+.gc-sel{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:6px 8px;color:var(--fg);font-size:12px}
+
 @media (max-width:760px){
   .stats{grid-template-columns:repeat(2,1fr)}
   .eq{grid-template-columns:1fr}
@@ -198,6 +210,20 @@ h1.title{font-family:var(--f-display);font-weight:800;font-size:24px;margin:0;le
       </div>
       <div id="lista"></div>
       <div id="appMsg" class="msg"></div>
+    </div>
+
+    <div class="card" style="padding:16px;margin-top:16px">
+      <h2 style="font-family:var(--f-display);font-size:17px;margin:0 0 4px">Cuentas de Google para Drive</h2>
+      <p style="color:var(--muted);font-size:12.5px;margin:0 0 12px">Cada proyecto de Google acepta hasta <b>100 usuarios de prueba</b>. Agrega aquí más proyectos y, en <b>“más opciones”</b> de cada equipo, elige con cuál se conecta (el Gmail del cliente debe estar como usuario de prueba en ese proyecto). Si lo dejas en <b>Automática</b>, la app prueba las cuentas en orden. La cuenta incluida en el instalador siempre queda como respaldo.</p>
+      <div id="gcLista"></div>
+      <div class="gc-add">
+        <input id="gcNombre" class="inp" type="text" placeholder="Nombre (ej: Proyecto 2)" />
+        <textarea id="gcJson" class="inp" placeholder="Pega aquí el contenido de credentials.json (cliente de Escritorio)"></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <label class="btn sec" style="cursor:pointer">📄 Elegir archivo…<input id="gcFile" type="file" accept=".json,application/json" style="display:none" /></label>
+          <button id="gcAgregar" class="btn">+ Agregar cuenta</button>
+        </div>
+      </div>
     </div>
 
     <div class="note">
@@ -288,7 +314,7 @@ async function cargar(silencio){
   const txt=$('buscar').value.trim().replace(/-/g,''); if(txt)q=q.or(`codigo.ilike.${txt}%,cliente.ilike.%${txt}%,gmail.ilike.%${txt}%`);
   const {data,error}=await q.limit(500);
   if(error){$('appMsg').className='msg err';$('appMsg').textContent='Error: '+error.message;return}
-  $('appMsg').textContent='';filas=data||[];pintar(filas);stats();
+  $('appMsg').textContent='';filas=data||[];await cargarCuentas(true);pintar(filas);stats();pintarCuentas();
 }
 async function stats(){
   const c=async e=>{const{count}=await sb.from('equipos').select('*',{count:'exact',head:true}).eq('estado',e);return count||0};
@@ -355,10 +381,14 @@ function pintar(rows){
           <button class="btn xs ok" data-a="ilimitado" data-id="${r.id}">♾ Ilimitado</button>
           <button class="btn xs sec" data-a="liberar" data-id="${r.id}">Liberar equipo</button>
         </div>
+        <div class="row" style="margin-top:10px"><span class="lbl">Cuenta de Google (Drive)</span>
+          <select class="gc-sel" data-gc="${r.id}">${opcionesCuenta(r.drive_cuenta)}</select>
+        </div>
       </div>
     </div>`;
   }).join('')+'</div>';
   for(const b of cont.querySelectorAll('[data-a]'))b.addEventListener('click',accion);
+  for(const sel of cont.querySelectorAll('[data-gc]'))sel.addEventListener('change',async()=>{const v=sel.value||null;const{error}=await sb.from('equipos').update({drive_cuenta:v}).eq('id',sel.dataset.gc);if(error){toast('Error: '+error.message,'err');return}const f=filas.find(x=>String(x.id)===sel.dataset.gc);if(f)f.drive_cuenta=v;pintarCuentas();toast(v?'Cuenta asignada':'Cuenta automática','ok')});
   for(const g of cont.querySelectorAll('.gmail'))g.addEventListener('click',()=>{$('filtro').value='';$('buscar').value=g.dataset.g;cargar()});
   for(const c of cont.querySelectorAll('.code'))c.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(c.dataset.copy);toast('Código copiado','ok')}catch(_){}});
   for(const m of cont.querySelectorAll('[data-more]'))m.addEventListener('click',()=>{const eq=document.querySelector('.eq[data-row="'+m.dataset.more+'"]');eq.classList.toggle('open');m.textContent=eq.classList.contains('open')?'⚙ ocultar':'⚙ más opciones'});
@@ -389,6 +419,44 @@ async function accion(ev){
   if(error){toast('Error: '+error.message,'err');b.disabled=false;return}
   toast(ok,'ok');cargar();
 }
+
+/* ---- Cuentas de Google (Drive) ---- */
+let cuentas=[];
+async function cargarCuentas(silencio){
+  const{data,error}=await sb.from('drive_cuentas').select('id,nombre,client_id,activa,orden,creado').order('orden',{ascending:true}).order('creado',{ascending:true});
+  if(error){if(!silencio)toast('Error cuentas: '+error.message,'err');cuentas=[];return}
+  cuentas=data||[];
+}
+function opcionesCuenta(sel){
+  return '<option value="">Automática</option>'+cuentas.map(c=>`<option value="${c.id}"${c.id===sel?' selected':''}>${esc(c.nombre)}${c.activa?'':' (pausada)'}</option>`).join('');
+}
+function pintarCuentas(){
+  const cont=$('gcLista');if(!cont)return;
+  if(!cuentas.length){cont.innerHTML='<div class="empty" style="padding:14px">Aún no agregaste cuentas. Se usa la incluida en el instalador.</div>';return}
+  const uso=new Map();for(const f of filas){if(f.drive_cuenta)uso.set(f.drive_cuenta,(uso.get(f.drive_cuenta)||0)+1)}
+  cont.innerHTML=cuentas.map(c=>{const n=uso.get(c.id)||0;const cls=n>=100?'lleno':(n>=90?'casi':'');
+    return `<div class="gc-row${c.activa?'':' off'}"><span class="gc-name">${esc(c.nombre)}</span><span class="gc-id" title="${esc(c.client_id)}">${esc(String(c.client_id).slice(0,22))}…</span>
+      <span class="gc-uso ${cls}">${n} / 100 equipos</span>
+      <button class="btn xs ${c.activa?'warnline':'okline'}" data-gct="${c.id}">${c.activa?'Pausar':'Activar'}</button>
+      <button class="btn xs bad" data-gcd="${c.id}">Borrar</button></div>`}).join('');
+  for(const b of cont.querySelectorAll('[data-gct]'))b.addEventListener('click',async()=>{const c=cuentas.find(x=>x.id===b.dataset.gct);const{error}=await sb.from('drive_cuentas').update({activa:!c.activa}).eq('id',c.id);if(error){toast('Error: '+error.message,'err');return}await cargarCuentas();pintarCuentas();pintar(filas);toast(c.activa?'Cuenta pausada':'Cuenta activada','ok')});
+  for(const b of cont.querySelectorAll('[data-gcd]'))b.addEventListener('click',async()=>{const c=cuentas.find(x=>x.id===b.dataset.gcd);if(!confirm('¿Borrar la cuenta "'+c.nombre+'"? Los equipos asignados pasarán a Automática.'))return;const{error}=await sb.from('drive_cuentas').delete().eq('id',c.id);if(error){toast('Error: '+error.message,'err');return}cargar();toast('Cuenta borrada','ok')});
+}
+function leerCredenciales(txt){
+  let j;try{j=JSON.parse(txt)}catch(_){throw new Error('El texto no es un JSON válido.')}
+  const d=j.installed||null;
+  if(!d){if(j.web)throw new Error('Ese es un cliente "Web". Crea uno de tipo "App de escritorio".');throw new Error('No encuentro "installed" en el JSON.')}
+  if(!d.client_id||!d.client_secret)throw new Error('Faltan client_id o client_secret.');
+  return {client_id:String(d.client_id).trim(),client_secret:String(d.client_secret).trim(),proyecto:d.project_id||''};
+}
+$('gcFile').addEventListener('change',async e=>{const f=e.target.files&&e.target.files[0];if(!f)return;$('gcJson').value=await f.text();if(!$('gcNombre').value.trim()){try{const c=leerCredenciales($('gcJson').value);$('gcNombre').value=c.proyecto||f.name.replace(/\.json$/i,'')}catch(_){}}e.target.value=''});
+$('gcAgregar').addEventListener('click',async()=>{
+  let c;try{c=leerCredenciales($('gcJson').value.trim())}catch(err){toast(err.message,'err');return}
+  const nombre=$('gcNombre').value.trim()||c.proyecto||('Cuenta '+(cuentas.length+1));
+  const{error}=await sb.from('drive_cuentas').insert({nombre,client_id:c.client_id,client_secret:c.client_secret,orden:cuentas.length});
+  if(error){toast(/duplicate|unique/i.test(error.message)?'Esa cuenta ya está agregada.':'Error: '+error.message,'err');return}
+  $('gcJson').value='';$('gcNombre').value='';await cargarCuentas();pintarCuentas();pintar(filas);toast('Cuenta agregada','ok');
+});
 
 sesion();
 </script>
