@@ -544,6 +544,7 @@ function filaEquipo(e,modo){
   if(modo==='adm'&&e.gmail&&e.estado!=='pendiente'&&e.estado!=='bloqueado')gtag+=e.drive_ok?' <span class="status st-ok" title="Su Gmail ya está habilitado para Drive">✅ Drive activado</span>':' <span class="status st-soon" title="El administrador está habilitando su Gmail en Google">⏳ Activando Drive</span>';
   if(modo==='root'&&e.estado==='pendiente'){const nr=noRec(e);if(nr.length)gtag+=` <span class="status st-exp" title="Vendedores que no lo reconocieron">❓ No reconocido por ${esc(nr.join(', '))}</span>`}
   if(debe.length)gtag+=modo==='root'?` <span class="status st-exp" title="El vendedor aún no te paga esta venta">💰 Debe ${soles(deuda)}</span>`:' <span class="status st-exp" title="Aún no le pagas esta venta al administrador">💰 Pendiente de pago</span>';
+  else if(vs.length&&vs.every(v=>v.cortesia))gtag+=' <span class="status st-inf" title="Cuenta que no se cobra">🎁 Sin cobro</span>';
   else if(vs.length)gtag+=' <span class="status st-ok">💵 Pagado</span>';
   if(modo==='root'&&e.admin_id&&e.estado==='pendiente')gtag+=` <span class="status st-soon" title="Se registró con el código de este vendedor">🏷 de ${esc(nombreAdmin(e.admin_id))}</span>`;
   return `<div class="urow glow-box" data-id="${e.id}">
@@ -570,7 +571,7 @@ function enlazarFilas(cont,modo){
     const id=row.dataset.id;
     for(const b of row.querySelectorAll('[data-a]'))b.onclick=()=>accion(modo,id,b.dataset.a,b,row);
     const ed=row.querySelector('[data-edit]');if(ed)ed.onclick=()=>modalEditar(S.equipos.find(x=>x.id===id),modo);
-    const fr=row.querySelector('[data-free]');if(fr)fr.onclick=async()=>{const ids=S.ventas.filter(v=>v.equipo_id===id&&!v.pagado).map(v=>v.id);if(!ids.length)return;if(!confirm('¿No cobrar este cliente?\nSe quita la deuda del vendedor por esta cuenta (por ejemplo, si se la regalaste).'))return;fr.disabled=true;const{error}=await sb.from('ventas').delete().in('id',ids);if(error){toast('Error: '+error.message,'err');fr.disabled=false;return}toast('Listo: esta cuenta no se cobra 🎁','ok');cargar(true)};
+    const fr=row.querySelector('[data-free]');if(fr)fr.onclick=async()=>{const ids=S.ventas.filter(v=>v.equipo_id===id&&!v.pagado).map(v=>v.id);if(!ids.length)return;if(!confirm('¿No cobrar este cliente?\nSe quita la deuda del vendedor por esta cuenta (por ejemplo, si se la regalaste).'))return;fr.disabled=true;const{error}=await sb.from('ventas').update({cortesia:true,pagado:true,pagado_en:new Date().toISOString(),monto:0}).in('id',ids);if(error){toast('Error: '+error.message,'err');fr.disabled=false;return}toast('Listo: esta cuenta no se cobra 🎁','ok');cargar(true)};
     const py=row.querySelector('[data-pay]');if(py)py.onclick=async()=>{const ids=S.ventas.filter(v=>v.equipo_id===id&&!v.pagado).map(v=>v.id);if(!ids.length)return;const tot=S.ventas.filter(v=>ids.includes(v.id)).reduce((a,v)=>a+Number(v.monto||0),0);if(!confirm('¿Marcar como PAGADO '+soles(tot)+' de este cliente?'))return;py.disabled=true;const{error}=await sb.from('ventas').update({pagado:true,pagado_en:new Date().toISOString()}).in('id',ids);if(error){toast('Error: '+error.message,'err');py.disabled=false;return}toast('Marcado como pagado 💵','ok');cargar(true)};
     const sg=row.querySelector('[data-sel-gc]');if(sg)sg.onchange=()=>upd(id,{drive_cuenta:sg.value||null,drive_ok:false},sg.value?'Cuenta asignada':'Cuenta automática');
     const sa=row.querySelector('[data-sel-adm]');if(sa)sa.onchange=()=>upd(id,{admin_id:sa.value||null},'Vendedor cambiado');
@@ -581,7 +582,7 @@ function enlazarFilas(cont,modo){
   for(const c of cont.querySelectorAll('[data-copy]'))c.onclick=async(ev)=>{ev.stopPropagation();try{await navigator.clipboard.writeText(c.dataset.copy);toast('Código copiado','ok')}catch(_){}};
 }
 function modalEditar(e,modo){
-  if(!e)return;const ilim=estadoDe(e).k==='ilimitado',R=modo==='root';
+  if(!e)return;const ilim=estadoDe(e).k==='ilimitado',R=modo==='root',vsE=(S.ventas||[]).filter(v=>v.equipo_id===e.id);
   const fl=(lbl,attr,val,ph)=>`<div><span class="lbl">${lbl}</span><input class="field" ${attr} placeholder="${ph}" value="${esc(val||'')}"></div>`;
   abrirModal(`<div style="display:flex;align-items:center"><h2>✏ Editar cliente</h2><button class="x">×</button></div>
     <div class="form-grid">
@@ -593,8 +594,17 @@ function modalEditar(e,modo){
     <div class="mrow" style="justify-content:flex-start"><button class="btn-primary-green small" data-a="guardar">💾 Guardar datos</button></div>
     ${ilim?'<p class="note">♾ Licencia ilimitada: no se suman días.</p>':(R?`<div class="form-grid" style="margin-top:12px"><div class="full"><span class="lbl">Días</span><div style="display:flex;gap:6px;flex-wrap:wrap"><input class="field mini" type="number" data-din placeholder="30" style="max-width:110px"><button class="act green" data-a="addn">Sumar</button><button class="act" data-a="setn">Fijar exacto</button><button class="act blue" data-a="ilimitado">♾ Ilimitada</button></div></div></div>`
       :`<div class="form-grid" style="margin-top:12px"><div class="full"><span class="lbl">Días de prueba (no generan cobro)</span><div style="display:flex;gap:6px;flex-wrap:wrap"><input class="field mini" type="number" data-din placeholder="días" style="max-width:110px"><button class="act green" data-a="addn">Sumar</button><input class="field mini" type="number" data-dqu placeholder="días" style="max-width:110px"><button class="act gold" data-a="quitar">Quitar</button></div></div></div>`)}
+    ${R&&vsE.length?`<div style="margin-top:14px"><span class="lbl">Cobro al vendedor (${esc(nombreAdmin(e.admin_id))})</span>
+      ${vsE.map(v=>`<div data-v="${v.id}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:6px 0"><span class="muted" style="min-width:150px;font-size:12px">${esc(v.tipo)} · ${new Date(v.creado).toLocaleDateString('es-PE')}</span><span class="muted">S/</span><input class="field mini" type="number" min="0" step="0.5" data-vm value="${Number(v.monto||0)}" style="max-width:90px"><select class="field" data-vs style="max-width:190px"><option value="p" ${!v.pagado?'selected':''}>💰 Pendiente de pago</option><option value="ok" ${v.pagado&&!v.cortesia?'selected':''}>💵 Pagado</option><option value="c" ${v.cortesia?'selected':''}>🎁 No se cobra</option></select></div>`).join('')}
+      <button class="act green" data-vsave>💾 Guardar cobro</button></div>`:''}
     <p class="muted" style="font-size:11px;margin-top:12px">Equipo: ${esc(e.nombre_equipo||'—')} · código <span class="code">${esc(e.codigo)}</span></p>`);
   const M=$('modal');
+  for(const r of M.querySelectorAll('[data-v]')){const sel=r.querySelector('[data-vs]'),mi=r.querySelector('[data-vm]');sel.onchange=()=>{if(sel.value==='c')mi.value=0;else if(!(Number(mi.value)>0)){const a=(S.admins||[]).find(x=>x.id===e.admin_id);mi.value=a?Number(a.comision||0):0}}}
+  const vb=M.querySelector('[data-vsave]');if(vb)vb.onclick=async()=>{vb.disabled=true;const now=new Date().toISOString();
+    for(const r of M.querySelectorAll('[data-v]')){const v=vsE.find(x=>x.id===r.dataset.v),st=r.querySelector('[data-vs]').value,m=Math.max(0,Number(r.querySelector('[data-vm]').value)||0);
+      const patch=st==='c'?{cortesia:true,pagado:true,pagado_en:v.pagado_en||now,monto:0}:st==='ok'?{cortesia:false,pagado:true,pagado_en:v.pagado_en||now,monto:m}:{cortesia:false,pagado:false,pagado_en:null,monto:m};
+      const{error}=await sb.from('ventas').update(patch).eq('id',v.id);if(error){toast('Error: '+error.message,'err');vb.disabled=false;return}}
+    cerrarModal();toast('Cobro guardado','ok');cargar(true)};
   for(const b of M.querySelectorAll('[data-a]'))b.onclick=async()=>{
     if(R&&b.dataset.a==='guardar'){const sa=M.querySelector('[data-m-adm]'),sg=M.querySelector('[data-m-gc]'),gk=M.querySelector('[data-m-gok]');
       const gm=M.querySelector('[data-f-gm]').value.trim().toLowerCase()||null;
