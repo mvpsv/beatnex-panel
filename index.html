@@ -535,7 +535,7 @@ function filaEquipo(e,modo){
     acts.unshift(`<button class="act" data-cpg="${esc(e.gmail)}" title="Copiar Gmail">📋 Gmail</button>`,`<a class="act blue" href="${gUrl('auth/audience',c.proyecto,c.dueno)}" target="_blank" rel="noopener" style="text-decoration:none" title="Abrir Usuarios de prueba en ${esc(c.nombre||'Google')}">↗ Agregar en Google</a>`,`<button class="act green" data-gok2>✅ Agregado a Google</button>`)}
   // ---- pagos del vendedor (por equipo) ----
   const vs=(S.ventas||[]).filter(v=>v.equipo_id===e.id),debe=vs.filter(v=>!v.pagado),deuda=debe.reduce((a,v)=>a+Number(v.monto||0),0);
-  if(modo==='root'&&debe.length)acts.push(`<button class="act green" data-pay title="Marcar como pagado lo que debe el vendedor por este cliente">💵 Me pagó</button>`);
+  if(modo==='root'&&debe.length)acts.push(`<button class="act green" data-pay title="Marcar como pagado lo que debe el vendedor por este cliente">💵 Me pagó</button>`,`<button class="act gold" data-free title="Cuenta regalada: no se le cobra al vendedor">🎁 No cobrar</button>`);
   acts.push(`<button class="act" data-edit>✏ Editar</button>`);
   if(modo==='root')acts.push(`<button class="act red" data-a="liberar" title="Eliminar cliente">🗑</button>`);
   const more='';
@@ -570,6 +570,7 @@ function enlazarFilas(cont,modo){
     const id=row.dataset.id;
     for(const b of row.querySelectorAll('[data-a]'))b.onclick=()=>accion(modo,id,b.dataset.a,b,row);
     const ed=row.querySelector('[data-edit]');if(ed)ed.onclick=()=>modalEditar(S.equipos.find(x=>x.id===id),modo);
+    const fr=row.querySelector('[data-free]');if(fr)fr.onclick=async()=>{const ids=S.ventas.filter(v=>v.equipo_id===id&&!v.pagado).map(v=>v.id);if(!ids.length)return;if(!confirm('¿No cobrar este cliente?\nSe quita la deuda del vendedor por esta cuenta (por ejemplo, si se la regalaste).'))return;fr.disabled=true;const{error}=await sb.from('ventas').delete().in('id',ids);if(error){toast('Error: '+error.message,'err');fr.disabled=false;return}toast('Listo: esta cuenta no se cobra 🎁','ok');cargar(true)};
     const py=row.querySelector('[data-pay]');if(py)py.onclick=async()=>{const ids=S.ventas.filter(v=>v.equipo_id===id&&!v.pagado).map(v=>v.id);if(!ids.length)return;const tot=S.ventas.filter(v=>ids.includes(v.id)).reduce((a,v)=>a+Number(v.monto||0),0);if(!confirm('¿Marcar como PAGADO '+soles(tot)+' de este cliente?'))return;py.disabled=true;const{error}=await sb.from('ventas').update({pagado:true,pagado_en:new Date().toISOString()}).in('id',ids);if(error){toast('Error: '+error.message,'err');py.disabled=false;return}toast('Marcado como pagado 💵','ok');cargar(true)};
     const sg=row.querySelector('[data-sel-gc]');if(sg)sg.onchange=()=>upd(id,{drive_cuenta:sg.value||null,drive_ok:false},sg.value?'Cuenta asignada':'Cuenta automática');
     const sa=row.querySelector('[data-sel-adm]');if(sa)sa.onchange=()=>upd(id,{admin_id:sa.value||null},'Vendedor cambiado');
