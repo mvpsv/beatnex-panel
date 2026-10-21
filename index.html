@@ -524,7 +524,7 @@ function filaEquipo(e,modo){
   const st=estadoDe(e),ilim=st.k==='ilimitado';
   const acts=[];
   if(modo==='root'){
-    if(e.estado==='pendiente'){acts.push(`<button class="act green" data-a="aprobar">♾ Activar</button>`,`<button class="act blue" data-a="prueba">🧪 Prueba 7d</button>`)}
+    if(e.estado==='pendiente'){acts.push(`<button class="act green" data-a="aprobar">♾ Activar</button>`,`<button class="act blue" data-a="prueba">🧪 Prueba 7d</button>`);if(!e.admin_id)acts.push(e.solo_root?`<button class="act" data-a="mostrar" title="Que tus vendedores vuelvan a verlo">👁 Mostrar a vendedores</button>`:`<button class="act gold" data-a="ocultar" title="Es tu cliente: que no les aparezca a tus vendedores">🙈 Ocultar a vendedores</button>`)}
     else if(e.estado==='bloqueado'){acts.push(`<button class="act green" data-a="desbloquear">🔓 Desbloquear</button>`)}
     else if(ilim){acts.push(`<button class="act red" data-a="bloquear">⛔</button>`)}
     else{acts.push(`<button class="act green" data-a="ilimitado">♾ Ilimitada</button>`,`<button class="act" data-a="add" data-n="7">+7</button>`,`<button class="act gold" data-a="add" data-n="-7">−7</button>`,`<button class="act red" data-a="bloquear">⛔</button>`)}
@@ -545,6 +545,7 @@ function filaEquipo(e,modo){
   const sub=modo==='root'?`${esc(e.gmail||'sin Gmail')} · ${esc(nombreAdmin(e.admin_id))}`:esc(e.gmail||'sin Gmail');
   let gtag=(modo==='root'&&e.gmail&&!e.drive_ok&&e.estado!=='bloqueado')?' <span class="status st-soon" title="Falta agregar su Gmail en Google">☁️ falta Google</span>':(modo==='root'&&e.gmail&&e.drive_ok?' <span class="status st-ok" title="Su Gmail ya está en Google">✅ En Google</span>':'');
   if(modo==='adm'&&e.gmail&&e.estado!=='pendiente'&&e.estado!=='bloqueado')gtag+=e.drive_ok?' <span class="status st-ok" title="Su Gmail ya está habilitado para Drive">✅ Drive activado</span>':' <span class="status st-soon" title="El administrador está habilitando su Gmail en Google">⏳ Activando Drive</span>';
+  if(modo==='root'&&e.estado==='pendiente'&&e.solo_root&&!e.admin_id)gtag+=' <span class="status st-block" title="Tus vendedores no lo ven">🔒 Solo tú</span>';
   if(modo==='root'&&e.estado==='pendiente'){const nr=noRec(e);if(nr.length)gtag+=` <span class="status st-exp" title="Vendedores que no lo reconocieron">❓ No reconocido por ${esc(nr.join(', '))}</span>`}
   if(debe.length)gtag+=modo==='root'?` <span class="status st-exp" title="El vendedor aún no te paga esta venta">💰 Debe ${soles(deuda)}</span>`:' <span class="status st-exp" title="Aún no le pagas esta venta al administrador">💰 Pendiente de pago</span>';
   else if(vs.length&&vs.every(v=>v.cortesia))gtag+=' <span class="status st-inf" title="Cuenta que no se cobra">🎁 Sin cobro</span>';
@@ -633,6 +634,8 @@ async function accion(modo,id,a,b,row){
     else if(a==='ilimitado'){if(!confirm('¿Dar licencia ILIMITADA a este equipo?'))return;patch={estado:'activo',vence:'2099-12-31T00:00:00Z'};ok='Licencia ilimitada ♾'}
     else if(a==='bloquear'){if(!confirm('¿Bloquear este equipo? La app dejará de funcionar.'))return;patch={estado:'bloqueado'};ok='Equipo bloqueado'}
     else if(a==='desbloquear'){patch={estado:'activo'};ok='Desbloqueado'}
+    else if(a==='ocultar'){patch={solo_root:true};ok='Ya no les aparece a tus vendedores 🙈'}
+    else if(a==='mostrar'){patch={solo_root:false};ok='Visible otra vez para tus vendedores'}
     else if(a==='guardar'){const d=datos();patch={...d};if((d.gmail||'')!==(e.gmail||''))patch.drive_ok=false;ok='Datos guardados'}
     else if(a==='liberar'){if(!confirm('¿Eliminar este cliente?\nTambién se borran sus ventas (y lo que el vendedor debía por él).\nSi vuelve a abrir la app saldrá otra vez como nuevo registro.'))return;{const{error:ev}=await sb.from('ventas').delete().eq('equipo_id',id);if(ev){toast('Error: '+ev.message,'err');return}}const{error}=await sb.from('equipos').delete().eq('id',id);if(error){toast('Error: '+error.message,'err');return}toast('Equipo liberado','ok');await cargar(true);return}
     if(!patch)return;b.disabled=true;await upd(id,patch,ok);return;
