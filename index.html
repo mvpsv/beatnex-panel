@@ -440,10 +440,11 @@ async function cargar(silencio){
     if(S.role==='root'){qs.push(sb.from('admins').select('*').order('creado',{ascending:true}));qs.push(sb.from('drive_cuentas').select('id,nombre,client_id,proyecto,dueno,activa,orden,creado').order('orden',{ascending:true}).order('creado',{ascending:true}));qs.push(sb.from('equipos_ocultos').select('equipo_id,admin_id'))}
     const r=await Promise.all(qs);
     for(const x of r)if(x.error)throw x.error;
-    S.equipos=r[0].data||[];S.ventas=r[1].data||[];
+    S.equipos=r[0].data||[];S.vTodas=r[1].data||[];
     S.ajustes={};for(const a of (r[2].data||[]))S.ajustes[a.clave]=a.valor;
     if(S.role==='root'){S.admins=r[3].data||[];S.cuentas=r[4].data||[];S.ocultos=r[5].data||[]}
     else{const {data}=await sb.from('admins').select('*').eq('id',S.me.id).maybeSingle();if(data)S.me=data;if(data&&!data.activo){toast('Tu acceso fue desactivado','err');setTimeout(async()=>{await sb.auth.signOut();location.reload()},1500);return}}
+    S.ventas=S.vTodas.filter(cuentaV);
     pintarTodo();avisar();
   }catch(e){if(!silencio)toast('Error al cargar: '+errMsg(e),'err');else console.warn(e)}
 }
@@ -466,6 +467,8 @@ function pintarAvisosBtn(){const b=$('btn-avisos');if(!('Notification' in window
 $('btn-avisos').onclick=async()=>{try{await Notification.requestPermission()}catch(_){}pintarAvisosBtn();if(Notification.permission==='granted'){pitido();toast('Avisos activados 🔔','ok')}else toast('El navegador bloqueó los avisos','err')};
 pintarAvisosBtn();
 function noRec(e){const ids=new Set((S.ocultos||[]).filter(o=>o.equipo_id===e.id).map(o=>o.admin_id));return [...ids].map(nombreAdmin).concat(e.no_reconocido&&!ids.size?['vendedor']:[])}
+/* Solo cuentan las ventas reales: no regaladas, con cliente existente y no bloqueado */
+function cuentaV(v){if(!v||v.cortesia||!v.equipo_id)return false;const e=S.equipos.find(x=>x.id===v.equipo_id);return !!e&&e.estado!=='bloqueado'}
 function pintarTodo(){
   const dl=S.ajustes.link_descarga;$('lnk-dl').classList.toggle('hidden',!dl);if(dl)$('lnk-dl').href=dl;
   if(S.role==='root'){pintarResumen();pintarEquipos();pintarAdmins();pintarCuentas();pintarAjustes()}
@@ -534,7 +537,7 @@ function filaEquipo(e,modo){
   if(modo==='root'&&faltaG){const c=(S.cuentas||[]).find(x=>x.id===(e.drive_cuenta||cuentaLibre()))||{};
     acts.unshift(`<button class="act" data-cpg="${esc(e.gmail)}" title="Copiar Gmail">📋 Gmail</button>`,`<a class="act blue" href="${gUrl('auth/audience',c.proyecto,c.dueno)}" target="_blank" rel="noopener" style="text-decoration:none" title="Abrir Usuarios de prueba en ${esc(c.nombre||'Google')}">↗ Agregar en Google</a>`,`<button class="act green" data-gok2>✅ Agregado a Google</button>`)}
   // ---- pagos del vendedor (por equipo) ----
-  const vs=(S.ventas||[]).filter(v=>v.equipo_id===e.id),debe=vs.filter(v=>!v.pagado),deuda=debe.reduce((a,v)=>a+Number(v.monto||0),0);
+  const vs=(S.vTodas||[]).filter(v=>v.equipo_id===e.id),debe=vs.filter(v=>!v.pagado&&cuentaV(v)),deuda=debe.reduce((a,v)=>a+Number(v.monto||0),0);
   if(modo==='root'&&debe.length)acts.push(`<button class="act green" data-pay title="Marcar como pagado lo que debe el vendedor por este cliente">💵 Me pagó</button>`,`<button class="act gold" data-free title="Cuenta regalada: no se le cobra al vendedor">🎁 No cobrar</button>`);
   acts.push(`<button class="act" data-edit>✏ Editar</button>`);
   if(modo==='root')acts.push(`<button class="act red" data-a="liberar" title="Eliminar cliente">🗑</button>`);
@@ -545,7 +548,7 @@ function filaEquipo(e,modo){
   if(modo==='root'&&e.estado==='pendiente'){const nr=noRec(e);if(nr.length)gtag+=` <span class="status st-exp" title="Vendedores que no lo reconocieron">❓ No reconocido por ${esc(nr.join(', '))}</span>`}
   if(debe.length)gtag+=modo==='root'?` <span class="status st-exp" title="El vendedor aún no te paga esta venta">💰 Debe ${soles(deuda)}</span>`:' <span class="status st-exp" title="Aún no le pagas esta venta al administrador">💰 Pendiente de pago</span>';
   else if(vs.length&&vs.every(v=>v.cortesia))gtag+=' <span class="status st-inf" title="Cuenta que no se cobra">🎁 Sin cobro</span>';
-  else if(vs.length)gtag+=' <span class="status st-ok">💵 Pagado</span>';
+  else if(vs.some(cuentaV))gtag+=' <span class="status st-ok">💵 Pagado</span>';
   if(modo==='root'&&e.admin_id&&e.estado==='pendiente')gtag+=` <span class="status st-soon" title="Se registró con el código de este vendedor">🏷 de ${esc(nombreAdmin(e.admin_id))}</span>`;
   return `<div class="urow glow-box" data-id="${e.id}">
     <div class="who"><div class="avatar">${inicial(e.cliente||e.nombre_equipo)}</div><div class="nmcol"><span class="uname">${esc(e.cliente||'Sin nombre')}</span><span class="usub">${sub}</span><span><span class="code" data-copy="${esc(e.codigo)}" title="Copiar código">${corto(e.codigo)}</span></span></div></div>
@@ -582,7 +585,7 @@ function enlazarFilas(cont,modo){
   for(const c of cont.querySelectorAll('[data-copy]'))c.onclick=async(ev)=>{ev.stopPropagation();try{await navigator.clipboard.writeText(c.dataset.copy);toast('Código copiado','ok')}catch(_){}};
 }
 function modalEditar(e,modo){
-  if(!e)return;const ilim=estadoDe(e).k==='ilimitado',R=modo==='root',vsE=(S.ventas||[]).filter(v=>v.equipo_id===e.id);
+  if(!e)return;const ilim=estadoDe(e).k==='ilimitado',R=modo==='root',vsE=(S.vTodas||[]).filter(v=>v.equipo_id===e.id);
   const fl=(lbl,attr,val,ph)=>`<div><span class="lbl">${lbl}</span><input class="field" ${attr} placeholder="${ph}" value="${esc(val||'')}"></div>`;
   abrirModal(`<div style="display:flex;align-items:center"><h2>✏ Editar cliente</h2><button class="x">×</button></div>
     <div class="form-grid">
@@ -665,8 +668,8 @@ function pintarAdmins(){
     const cli=S.equipos.filter(e=>e.admin_id===a.id),act=cli.filter(e=>{const k=estadoDe(e).k;return k==='activo'||k==='porvencer'||k==='ilimitado'}).length;
     const mes=S.ventas.filter(v=>v.admin_id===a.id&&mismoMes(v.creado)).length,d=deudaDe(a.id);
     const abierto=S.abiertos.has('a:'+a.id);
-    const vs=S.ventas.filter(v=>v.admin_id===a.id);
-    const lista=abierto?`<div class="vlist">${vs.length?vs.map(v=>{const e=S.equipos.find(x=>x.id===v.equipo_id);return `<label class="vrow"><input type="checkbox" data-vchk="${v.id}"><span>${v.tipo==='activacion'?'🆕 Activación':v.tipo==='ilimitada'?'♾ Ilimitada':'🔁 Renovación'}${v.dias?' '+v.dias+'d':''} · <b>${esc(e?e.cliente||corto(e.codigo):'equipo borrado')}</b></span><span class="paytag ${v.pagado?'pay-ok':'pay-no'}">${v.cortesia?'🎁 Sin cobro':v.pagado?'Pagado':'Pendiente'}</span><span class="sub">${soles(v.monto)} · ${fecha(v.creado)}</span></label>`}).join(''):'<div class="empty">Sin ventas todavía.</div>'}</div>
+    const vs=S.vTodas.filter(v=>v.admin_id===a.id);
+    const lista=abierto?`<div class="vlist">${vs.length?vs.map(v=>{const e=S.equipos.find(x=>x.id===v.equipo_id);return `<label class="vrow"><input type="checkbox" data-vchk="${v.id}"><span>${v.tipo==='activacion'?'🆕 Activación':v.tipo==='ilimitada'?'♾ Ilimitada':'🔁 Renovación'}${v.dias?' '+v.dias+'d':''} · <b>${esc(e?e.cliente||corto(e.codigo):'equipo borrado')}</b></span><span class="paytag ${v.pagado?'pay-ok':'pay-no'}">${v.cortesia?'🎁 Sin cobro':!cuentaV(v)?'No cuenta':v.pagado?'Pagado':'Pendiente'}</span><span class="sub">${soles(v.monto)} · ${fecha(v.creado)}</span></label>`}).join(''):'<div class="empty">Sin ventas todavía.</div>'}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="act" data-sel-all>Marcar todas las pendientes</button><button class="act green" data-pay>✅ Marcar seleccionadas como pagadas</button><button class="act gold" data-unpay>↩ Desmarcar pago</button><button class="act" data-vfree>🎁 No cobrar seleccionadas</button><button class="act red" data-vdel>🗑 Borrar seleccionadas</button></div>`:'';
     return `<div class="rvcard glow-box${a.activo?'':' off'}" data-adm="${a.id}">
       <div class="rvhead"><div class="avatar">${inicial(a.nombre)}</div><div class="nmcol"><span class="uname">${esc(a.nombre)}</span><span class="usub">@${esc(a.usuario)}${a.whatsapp?' · 📱 '+esc(a.whatsapp):''}</span></div><span class="status ${a.activo?'st-ok':'st-block'}" style="margin-left:auto">${a.activo?'Activo':'Desactivado'}</span></div>
@@ -686,7 +689,7 @@ function pintarAdmins(){
     const pay=c.querySelector('[data-pay]');if(pay)pay.onclick=()=>marcarPago(c,true);
     const vfr=c.querySelector('[data-vfree]');if(vfr)vfr.onclick=async()=>{const ids=[...c.querySelectorAll('[data-vchk]:checked')].map(x=>x.dataset.vchk);if(!ids.length){toast('Marca primero las ventas','err');return}if(!confirm('¿No cobrar '+ids.length+' venta(s)? Se quitan de la deuda.'))return;const{error}=await sb.from('ventas').update({cortesia:true,pagado:true,pagado_en:new Date().toISOString(),monto:0}).in('id',ids);if(error){toast('Error: '+error.message,'err');return}toast('Listo: no se cobran 🎁','ok');cargar(true)};
     const vdl=c.querySelector('[data-vdel]');if(vdl)vdl.onclick=async()=>{const ids=[...c.querySelectorAll('[data-vchk]:checked')].map(x=>x.dataset.vchk);if(!ids.length){toast('Marca primero las ventas','err');return}if(!confirm('¿BORRAR '+ids.length+' venta(s)? Desaparecen del historial y de la deuda del vendedor.'))return;const{error}=await sb.from('ventas').delete().in('id',ids);if(error){toast('Error: '+error.message,'err');return}toast('Ventas borradas','ok');cargar(true)};
-    const unp=c.querySelector('[data-unpay]');if(unp)unp.onclick=async()=>{const pagadas=S.ventas.filter(v=>v.admin_id===id&&v.pagado);if(!pagadas.length){toast('No hay ventas pagadas','err');return}abrirModal(`<div style="display:flex;align-items:center"><h2>↩ Desmarcar pago</h2><button class="x">×</button></div><div class="vlist">${pagadas.map(v=>`<label class="vrow"><input type="checkbox" data-u="${v.id}"><span>${v.tipo} · ${soles(v.monto)}</span><span class="sub">pagado ${fecha(v.pagado_en)}</span></label>`).join('')}</div><div class="mrow"><button class="btn-ghost" data-c>Cancelar</button><button class="btn-primary-blue small" data-ok>Desmarcar</button></div>`);$('modal').querySelector('[data-c]').onclick=cerrarModal;$('modal').querySelector('[data-ok]').onclick=async()=>{const ids=[...$('modal').querySelectorAll('[data-u]:checked')].map(x=>x.dataset.u);if(!ids.length)return;const{error}=await sb.from('ventas').update({pagado:false,pagado_en:null}).in('id',ids);if(error){toast('Error: '+error.message,'err');return}cerrarModal();toast('Pago desmarcado','ok');cargar(true)}};
+    const unp=c.querySelector('[data-unpay]');if(unp)unp.onclick=async()=>{const pagadas=S.vTodas.filter(v=>v.admin_id===id&&v.pagado&&!v.cortesia);if(!pagadas.length){toast('No hay ventas pagadas','err');return}abrirModal(`<div style="display:flex;align-items:center"><h2>↩ Desmarcar pago</h2><button class="x">×</button></div><div class="vlist">${pagadas.map(v=>`<label class="vrow"><input type="checkbox" data-u="${v.id}"><span>${v.tipo} · ${soles(v.monto)}</span><span class="sub">pagado ${fecha(v.pagado_en)}</span></label>`).join('')}</div><div class="mrow"><button class="btn-ghost" data-c>Cancelar</button><button class="btn-primary-blue small" data-ok>Desmarcar</button></div>`);$('modal').querySelector('[data-c]').onclick=cerrarModal;$('modal').querySelector('[data-ok]').onclick=async()=>{const ids=[...$('modal').querySelectorAll('[data-u]:checked')].map(x=>x.dataset.u);if(!ids.length)return;const{error}=await sb.from('ventas').update({pagado:false,pagado_en:null}).in('id',ids);if(error){toast('Error: '+error.message,'err');return}cerrarModal();toast('Pago desmarcado','ok');cargar(true)}};
   }
 }
 async function marcarPago(card,pagado){
