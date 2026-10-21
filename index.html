@@ -518,7 +518,7 @@ function chips(cont,lista,actual,onPick){
 function opcionesCuenta(sel){return '<option value="">Automática</option>'+S.cuentas.map(c=>`<option value="${c.id}"${c.id===sel?' selected':''}>${esc(c.nombre)}${c.activa?'':' (pausada)'}</option>`).join('')}
 function opcionesAdmin(sel){return '<option value="">Tú (root)</option>'+S.admins.map(a=>`<option value="${a.id}"${a.id===sel?' selected':''}>${esc(a.nombre)}</option>`).join('')}
 function filaEquipo(e,modo){
-  const st=estadoDe(e),abierto=S.abiertos.has(e.id),ilim=st.k==='ilimitado';
+  const st=estadoDe(e),ilim=st.k==='ilimitado';
   const acts=[];
   if(modo==='root'){
     if(e.estado==='pendiente'){acts.push(`<button class="act green" data-a="aprobar">♾ Activar</button>`,`<button class="act blue" data-a="prueba">🧪 Prueba 7d</button>`)}
@@ -533,28 +533,18 @@ function filaEquipo(e,modo){
   const faltaG=e.gmail&&!e.drive_ok&&e.estado!=='bloqueado';
   if(modo==='root'&&faltaG){const c=(S.cuentas||[]).find(x=>x.id===(e.drive_cuenta||cuentaLibre()))||{};
     acts.unshift(`<button class="act" data-cpg="${esc(e.gmail)}" title="Copiar Gmail">📋 Gmail</button>`,`<a class="act blue" href="${gUrl('auth/audience',c.proyecto,c.dueno)}" target="_blank" rel="noopener" style="text-decoration:none" title="Abrir Usuarios de prueba en ${esc(c.nombre||'Google')}">↗ Agregar en Google</a>`,`<button class="act green" data-gok2>✅ Agregado a Google</button>`)}
-  acts.push(`<button class="act" data-more>⚙ ${abierto?'Cerrar':'Más'}</button>`);
-  let more='';
-  if(abierto){
-    if(modo==='root'){
-      more=`<div class="more">
-        ${ilim?'':`<div class="row"><span class="lbl">Días a medida</span><input class="field mini" type="number" data-din placeholder="30"><button class="act green" data-a="addn">Sumar</button><button class="act" data-a="setn">Fijar exacto</button><button class="act blue" data-a="ilimitado">♾ Ilimitada</button></div>`}
-        <div class="row"><span class="lbl">Datos del cliente</span><input class="field" style="max-width:200px;padding:8px 10px" data-f-cli placeholder="Nombre" value="${esc(e.cliente||'')}"><input class="field" style="max-width:240px;padding:8px 10px" data-f-gm placeholder="Gmail" value="${esc(e.gmail||'')}"><input class="field" style="max-width:150px;padding:8px 10px" data-f-wa placeholder="WhatsApp" value="${esc(e.whatsapp||'')}"><button class="act green" data-a="guardar">💾 Guardar</button></div>
-        <div class="row"><span class="lbl">Cuenta de Google · Vendido por</span><select class="sel" data-sel-gc>${opcionesCuenta(e.drive_cuenta)}</select><select class="sel" data-sel-adm>${opcionesAdmin(e.admin_id)}</select>${e.gmail&&e.drive_cuenta?`<label class="act" style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" data-gok ${e.drive_ok?'checked':''}> Agregado en Google</label>`:''}</div>
-        <div class="row"><span class="lbl">Peligro</span><button class="act red" data-a="liberar">🗑 Liberar equipo</button><span class="muted" style="font-size:11px">Equipo: ${esc(e.nombre_equipo||'—')} · código completo <span class="code" data-copy="${esc(e.codigo)}">${esc(e.codigo)}</span></span></div>
-      </div>`;
-    }else{
-      more=`<div class="more">
-        ${ilim?'':`<div class="row"><span class="lbl">Prueba · sumar días (no genera cobro)</span><input class="field mini" type="number" data-din placeholder="días"><button class="act green" data-a="addn">Sumar</button></div>
-        <div class="row"><span class="lbl">Corregir (no genera cobro)</span><input class="field mini" type="number" data-dqu placeholder="días"><button class="act gold" data-a="quitar">Quitar días</button></div>`}
-        <div class="row"><span class="lbl">Datos del cliente</span><input class="field" style="max-width:200px;padding:8px 10px" data-f-cli placeholder="Nombre" value="${esc(e.cliente||'')}"><input class="field" style="max-width:240px;padding:8px 10px" data-f-gm placeholder="Gmail" value="${esc(e.gmail||'')}"><input class="field" style="max-width:150px;padding:8px 10px" data-f-wa placeholder="WhatsApp" value="${esc(e.whatsapp||'')}"><button class="act green" data-a="guardar">💾 Guardar</button></div>
-      </div>`;
-    }
-  }
+  // ---- pagos del vendedor (por equipo) ----
+  const vs=(S.ventas||[]).filter(v=>v.equipo_id===e.id),debe=vs.filter(v=>!v.pagado),deuda=debe.reduce((a,v)=>a+Number(v.monto||0),0);
+  if(modo==='root'&&debe.length)acts.push(`<button class="act green" data-pay title="Marcar como pagado lo que debe el vendedor por este cliente">💵 Me pagó</button>`);
+  acts.push(`<button class="act" data-edit>✏ Editar</button>`);
+  if(modo==='root')acts.push(`<button class="act red" data-a="liberar" title="Eliminar cliente">🗑</button>`);
+  const more='';
   const sub=modo==='root'?`${esc(e.gmail||'sin Gmail')} · ${esc(nombreAdmin(e.admin_id))}`:esc(e.gmail||'sin Gmail');
   let gtag=(modo==='root'&&e.gmail&&!e.drive_ok&&e.estado!=='bloqueado')?' <span class="status st-soon" title="Falta agregar su Gmail en Google">☁️ falta Google</span>':(modo==='root'&&e.gmail&&e.drive_ok?' <span class="status st-ok" title="Su Gmail ya está en Google">✅ En Google</span>':'');
   if(modo==='adm'&&e.gmail&&e.estado!=='pendiente'&&e.estado!=='bloqueado')gtag+=e.drive_ok?' <span class="status st-ok" title="Su Gmail ya está habilitado para Drive">✅ Drive activado</span>':' <span class="status st-soon" title="El administrador está habilitando su Gmail en Google">⏳ Activando Drive</span>';
   if(modo==='root'&&e.estado==='pendiente'){const nr=noRec(e);if(nr.length)gtag+=` <span class="status st-exp" title="Vendedores que no lo reconocieron">❓ No reconocido por ${esc(nr.join(', '))}</span>`}
+  if(debe.length)gtag+=modo==='root'?` <span class="status st-exp" title="El vendedor aún no te paga esta venta">💰 Debe ${soles(deuda)}</span>`:' <span class="status st-exp" title="Aún no le pagas esta venta al administrador">💰 Pendiente de pago</span>';
+  else if(vs.length)gtag+=' <span class="status st-ok">💵 Pagado</span>';
   if(modo==='root'&&e.admin_id&&e.estado==='pendiente')gtag+=` <span class="status st-soon" title="Se registró con el código de este vendedor">🏷 de ${esc(nombreAdmin(e.admin_id))}</span>`;
   return `<div class="urow glow-box" data-id="${e.id}">
     <div class="who"><div class="avatar">${inicial(e.cliente||e.nombre_equipo)}</div><div class="nmcol"><span class="uname">${esc(e.cliente||'Sin nombre')}</span><span class="usub">${sub}</span><span><span class="code" data-copy="${esc(e.codigo)}" title="Copiar código">${corto(e.codigo)}</span></span></div></div>
@@ -579,7 +569,8 @@ function enlazarFilas(cont,modo){
   for(const row of cont.querySelectorAll('.urow')){
     const id=row.dataset.id;
     for(const b of row.querySelectorAll('[data-a]'))b.onclick=()=>accion(modo,id,b.dataset.a,b,row);
-    const m=row.querySelector('[data-more]');if(m)m.onclick=()=>{S.abiertos.has(id)?S.abiertos.delete(id):S.abiertos.add(id);modo==='root'?pintarEquipos():pintarClientes()};
+    const ed=row.querySelector('[data-edit]');if(ed)ed.onclick=()=>modalEditar(S.equipos.find(x=>x.id===id),modo);
+    const py=row.querySelector('[data-pay]');if(py)py.onclick=async()=>{const ids=S.ventas.filter(v=>v.equipo_id===id&&!v.pagado).map(v=>v.id);if(!ids.length)return;const tot=S.ventas.filter(v=>ids.includes(v.id)).reduce((a,v)=>a+Number(v.monto||0),0);if(!confirm('¿Marcar como PAGADO '+soles(tot)+' de este cliente?'))return;py.disabled=true;const{error}=await sb.from('ventas').update({pagado:true,pagado_en:new Date().toISOString()}).in('id',ids);if(error){toast('Error: '+error.message,'err');py.disabled=false;return}toast('Marcado como pagado 💵','ok');cargar(true)};
     const sg=row.querySelector('[data-sel-gc]');if(sg)sg.onchange=()=>upd(id,{drive_cuenta:sg.value||null,drive_ok:false},sg.value?'Cuenta asignada':'Cuenta automática');
     const sa=row.querySelector('[data-sel-adm]');if(sa)sa.onchange=()=>upd(id,{admin_id:sa.value||null},'Vendedor cambiado');
     const cg=row.querySelector('[data-cpg]');if(cg)cg.onclick=async()=>{try{await navigator.clipboard.writeText(cg.dataset.cpg);toast('Gmail copiado','ok')}catch(_){}};
@@ -587,6 +578,28 @@ function enlazarFilas(cont,modo){
     const gk=row.querySelector('[data-gok]');if(gk)gk.onchange=()=>upd(id,{drive_ok:gk.checked},gk.checked?'Marcado como agregado':'Marcado como pendiente');
   }
   for(const c of cont.querySelectorAll('[data-copy]'))c.onclick=async(ev)=>{ev.stopPropagation();try{await navigator.clipboard.writeText(c.dataset.copy);toast('Código copiado','ok')}catch(_){}};
+}
+function modalEditar(e,modo){
+  if(!e)return;const ilim=estadoDe(e).k==='ilimitado',R=modo==='root';
+  const fl=(lbl,attr,val,ph)=>`<div><span class="lbl">${lbl}</span><input class="field" ${attr} placeholder="${ph}" value="${esc(val||'')}"></div>`;
+  abrirModal(`<div style="display:flex;align-items:center"><h2>✏ Editar cliente</h2><button class="x">×</button></div>
+    <div class="form-grid">
+      ${fl('Nombre','data-f-cli',e.cliente,'Nombre')}${fl('Gmail (el de su Drive)','data-f-gm',e.gmail,'cliente@gmail.com')}${fl('WhatsApp','data-f-wa',e.whatsapp,'Ej: 51999…')}
+      ${R?`<div><span class="lbl">Vendido por</span><select class="field" data-m-adm>${opcionesAdmin(e.admin_id)}</select></div>
+      <div><span class="lbl">Cuenta de Google</span><select class="field" data-m-gc>${opcionesCuenta(e.drive_cuenta)}</select></div>
+      <div><span class="lbl">¿Agregado en Google?</span><label class="field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-m-gok ${e.drive_ok?'checked':''}> Sí, ya está en Google</label></div>`:''}
+    </div>
+    <div class="mrow" style="justify-content:flex-start"><button class="btn-primary-green small" data-a="guardar">💾 Guardar datos</button></div>
+    ${ilim?'<p class="note">♾ Licencia ilimitada: no se suman días.</p>':(R?`<div class="form-grid" style="margin-top:12px"><div class="full"><span class="lbl">Días</span><div style="display:flex;gap:6px;flex-wrap:wrap"><input class="field mini" type="number" data-din placeholder="30" style="max-width:110px"><button class="act green" data-a="addn">Sumar</button><button class="act" data-a="setn">Fijar exacto</button><button class="act blue" data-a="ilimitado">♾ Ilimitada</button></div></div></div>`
+      :`<div class="form-grid" style="margin-top:12px"><div class="full"><span class="lbl">Días de prueba (no generan cobro)</span><div style="display:flex;gap:6px;flex-wrap:wrap"><input class="field mini" type="number" data-din placeholder="días" style="max-width:110px"><button class="act green" data-a="addn">Sumar</button><input class="field mini" type="number" data-dqu placeholder="días" style="max-width:110px"><button class="act gold" data-a="quitar">Quitar</button></div></div></div>`)}
+    <p class="muted" style="font-size:11px;margin-top:12px">Equipo: ${esc(e.nombre_equipo||'—')} · código <span class="code">${esc(e.codigo)}</span></p>`);
+  const M=$('modal');
+  for(const b of M.querySelectorAll('[data-a]'))b.onclick=async()=>{
+    if(R&&b.dataset.a==='guardar'){const sa=M.querySelector('[data-m-adm]'),sg=M.querySelector('[data-m-gc]'),gk=M.querySelector('[data-m-gok]');
+      const gm=M.querySelector('[data-f-gm]').value.trim().toLowerCase()||null;
+      const patch={cliente:M.querySelector('[data-f-cli]').value.trim()||null,gmail:gm,whatsapp:M.querySelector('[data-f-wa]').value.trim()||null,admin_id:sa.value||null,drive_cuenta:sg.value||null,drive_ok:gm!==(e.gmail||null)?false:gk.checked};
+      b.disabled=true;cerrarModal();await upd(e.id,patch,'Datos guardados');return}
+    await accion(modo,e.id,b.dataset.a,b,M);if($('ov').classList.contains('show'))cerrarModal()};
 }
 async function upd(id,patch,ok){const{error}=await sb.from('equipos').update(patch).eq('id',id);if(error){toast('Error: '+error.message,'err');return}toast(ok,'ok');await cargar(true)}
 function cuentaLibre(){for(const c of S.cuentas){if(!c.activa)continue;const n=S.equipos.filter(e=>e.drive_cuenta===c.id).length;if(n<100)return c.id}return null}
